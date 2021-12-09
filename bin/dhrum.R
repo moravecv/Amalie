@@ -83,6 +83,8 @@ dta_d2[V1 > 0 ,fill:= "blue"]
 dta_d[, DIFF:= (Forest - `Arable land`) ]
 dta_d[, DTM:= as.Date(paste0(year, "-", month, "-01"), format = "%Y-%m-%d")]
 
+dta_d_cum <- dta_d[, cumsum(DIFF), by = .(DTM, variable, POV)]
+
 dta_d_m <- melt(dta_d, id.vars = c("DTM","year", "month", "variable", "SEZONA", "PER", "POV"))
 
 ############## SEZONNI ############
@@ -143,3 +145,7 @@ ggplot()+
 ggplot(dta_d_m[variable.1 != "DIFF" & !variable %in% c("Srazky", "Teplota")])+
   geom_line(aes(x = DTM, y = value, colour = interaction(POV, variable.1)))+
   facet_wrap(~ variable, scales = "free_y", ncol = 1)
+
+ggplot(dta_d_cum[!variable %in% c("Srazky", "Teplota")])+
+  geom_line(aes(x = DTM, y = V1, colour = POV))+
+  facet_wrap(~variable, scales = "free_y", ncol = 1)
