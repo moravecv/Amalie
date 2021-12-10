@@ -1,22 +1,29 @@
+library(data.table)
+library(foreign)
+library(dplyr)
+library(ggplot2)
+
 setwd("C:/Users/Moravec/Downloads/Vojta_a_Martin/")
 
-
-bp_dbf <- read.dbf("./shp/BP_Drainage_FG/BP_D_FG.dbf")
-kl_dbf <- read.dbf("./shp/KL_Drainage_FG/KL_Drainage_FG.dbf")
+bp_dbf <- data.table(read.dbf("./shp/BP_Drainage_FG/BP_D_FG.dbf"))
+kl_dbf <- data.table(read.dbf("./shp/KL_Drainage_FG/KL_Drainage_FG.dbf"))
 
 bp_dist <- readRDS("C:/Users/Moravec/Downloads/BP_dist.rds")
 kl_dist <- readRDS("C:/Users/Moravec/Downloads/KL_dist.rds")
+
+bp_area <- bp_dbf[Land_Use %in% c("Forest", "Arable land", "Meadow") , sum(Area)]
+kl_area <- kl_dbf[Land_Use %in% c("Forest", "Arable land", "Meadow") , sum(Area)]
 
 colnames(bp_dist)[24] <- "OBJECTID"
 colnames(kl_dist)[24] <- "OBJECTID"
 bp_dist$OBJECTID <- as.numeric(bp_dist$OBJECTID)
 kl_dist$OBJECTID <- as.numeric(kl_dist$OBJECTID)
 
-BP_DIST <- merge(x = bp_dist, y = bp_dbf %>% select(OBJECTID,Land_Use), by = "OBJECTID")
-KL_DIST <- merge(x = kl_dist, y = kl_dbf %>% select(OBJECTID,Land_Use), by = "OBJECTID")
+BP_DIST <- merge(x = bp_dist, y = bp_dbf %>% select(OBJECTID,Land_Use, Area), by = "OBJECTID")
+KL_DIST <- merge(x = kl_dist, y = kl_dbf %>% select(OBJECTID,Land_Use, Area), by = "OBJECTID")
 
-BP_DIST <- BP_DIST %>% select(DTM, LU = Land_Use, PREC, TEMP, TOTR, BASF, SURS, SOIS, INTS, DIRR, PERC, GROS, AET, EVAC, EVAS, EVBS)
-KL_DIST <- KL_DIST %>% select(DTM, LU = Land_Use, PREC, TEMP, TOTR, BASF, SURS, SOIS, INTS, DIRR, PERC, GROS, AET, EVAC, EVAS, EVBS)
+BP_DIST <- BP_DIST %>% select(DTM, LU = Land_Use, Area, PREC, TEMP, TOTR, BASF, SURS, SOIS, INTS, DIRR, PERC, GROS, AET, EVAC, EVAS, EVBS)
+KL_DIST <- KL_DIST %>% select(DTM, LU = Land_Use, Area, PREC, TEMP, TOTR, BASF, SURS, SOIS, INTS, DIRR, PERC, GROS, AET, EVAC, EVAS, EVBS)
 
 unique(BP_DIST$LU)
 unique(KL_DIST$LU)
@@ -32,11 +39,17 @@ KL_DIST[, POV:= "Karluv luh"]
 
 dta <- rbind(BP_DIST, KL_DIST)
 
-dta_m <- melt(dta, id.vars = c("DTM", "LU", "POV"))
+dta_m <- melt(dta, id.vars = c("DTM", "LU", "POV", "Area"))
 
-dta_m <- dta_m[, mean(value), by = .(DTM, LU, POV, variable)]
+dta_m[ , value_m3:= ifelse(test = variable %in% c("TEMP"), yes = value, no = value / 1000 * Area)]
 
-dta_m <- dta_m[,{mean=mean(V1); sum=sum(V1); list(mean=mean, sum=sum)}, by = .(year(DTM), month(DTM), LU, POV, variable)]
+dta_m <- dta_m[, {mean=mean(value_m3); sum=sum(value_m3); list(mean=mean, sum=sum)}, by = .(DTM, LU, POV, variable)]
+
+dta_m[, val:= ifelse(test = variable %in% c("TEMP"), yes = mean, no = sum)]
+
+dta_m$mean <- dta_m$sum <- NULL
+
+dta_m <- dta_m[,{mean=mean(val); sum=sum(val); list(mean=mean, sum=sum)}, by = .(year(DTM), month(DTM), LU, POV, variable)]
 
 dta_m[, val:= ifelse(test = variable %in% c("SOIS", "GROS", "SURS", "TEMP"), yes = mean, no = sum)]
 
@@ -72,6 +85,7 @@ dta_m[variable == "GROS", variable:= "Zasoba podzemni vody"]
 dta_m[variable == "AETT", variable:= "Celkova aktualni evapotranspirace"]
 
 dta_d <- data.table(dcast(dta_m, formula = year+month+variable+SEZONA+PER+POV~LU, value.var = "value"))
+
 dta_d[, DIFF:= (Forest / `Arable land` - 1) * 100 ]
 dta_d[DIFF == Inf, DIFF:= NA ]
 dta_d[DIFF <= 0 ,fill:= "red"]
@@ -82,6 +96,7 @@ dta_d2[V1 > 0 ,fill:= "blue"]
 
 dta_d[, DIFF:= (Forest - `Arable land`) ]
 dta_d[, DTM:= as.Date(paste0(year, "-", month, "-01"), format = "%Y-%m-%d")]
+
 
 dta_d_cum <- dta_d[, cumsum(DIFF), by = .(DTM, variable, POV)]
 
@@ -96,6 +111,10 @@ dta_d2[V1 > 0 ,fill:= "blue"]
 ############### MESICNI ###############
 
 dta_d2 <- dta_d[, mean(DIFF, na.rm = T), by = .(variable, month, PER, POV)]
+dta_d2[POV == "Brejlsky potok", AREA:= bp_area]
+dta_d2[POV == "Karluv luh", AREA:= kl_area]
+dta_d2[,NORM:= V1 / AREA * 1000]
+
 dta_d2[V1 <= 0 ,fill:= "red"]
 dta_d2[V1 > 0 ,fill:= "blue"]
 
@@ -129,7 +148,7 @@ ggplot()+
 ######### MESIC ##############
 
 ggplot()+
-  geom_bar(data = dta_d2[!variable %in% c("Srazky", "Teplota")] %>% mutate(var_pov = paste0(variable, ' - ', POV)), aes(x = PER, y= V1, group = month, fill = fill), colour = "black",position = position_dodge(), stat = "identity")+
+  geom_bar(data = dta_d2[!variable %in% c("Srazky", "Teplota")] %>% mutate(var_pov = paste0(variable, ' - ', POV)), aes(x = PER, y= NORM, group = month, fill = fill), colour = "black",position = position_dodge(), stat = "identity")+
   #geom_text(data = BP_DIST_d2[!variable %in% c("PREC", "TEMP")], aes(x = PER, y= 0, group = SEZONA, label=SEZONA), vjust=1, position = position_dodge(width = 0.9))+
   #geom_point(data = eddy_m, aes(as.factor(month), y = value, group = month), color = "#377eb8", shape = 4, size =3)+
   #geom_point(data = eddy_m, aes(as.factor(month), y = value, group = month), color = "#377eb8", shape = 16)+
