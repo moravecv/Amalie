@@ -86,6 +86,12 @@ dta_m[variable == "AETT", variable:= "Celkova aktualni evapotranspirace"]
 
 dta_d <- data.table(dcast(dta_m, formula = year+month+variable+SEZONA+PER+POV~LU, value.var = "value"))
 
+dta_d[POV == "Brejlsky potok", `Arable land [mm]`:= `Arable land` / bp_area * 1000]
+dta_d[POV == "Karluv luh", `Arable land [mm]`:= `Arable land` / kl_area * 1000]
+
+dta_d[POV == "Brejlsky potok", `Forest [mm]`:= `Forest` / bp_area * 1000]
+dta_d[POV == "Karluv luh", `Forest [mm]`:= `Forest` / kl_area * 1000]
+
 dta_d[, DIFF:= (Forest / `Arable land` - 1) * 100 ]
 dta_d[DIFF == Inf, DIFF:= NA ]
 dta_d[DIFF <= 0 ,fill:= "red"]
@@ -94,7 +100,7 @@ dta_d2 <- dta_d[, mean(DIFF, na.rm = T), by = .(variable, SEZONA, PER, POV)]
 dta_d2[V1 <= 0 ,fill:= "red"]
 dta_d2[V1 > 0 ,fill:= "blue"]
 
-dta_d[, DIFF:= (Forest - `Arable land`) ]
+dta_d[, DIFF:= (`Forest [mm]` - `Arable land [mm]`) ]
 dta_d[, DTM:= as.Date(paste0(year, "-", month, "-01"), format = "%Y-%m-%d")]
 
 
@@ -148,7 +154,7 @@ ggplot()+
 ######### MESIC ##############
 
 ggplot()+
-  geom_bar(data = dta_d2[!variable %in% c("Srazky", "Teplota")] %>% mutate(var_pov = paste0(variable, ' - ', POV)), aes(x = PER, y= NORM, group = month, fill = fill), colour = "black",position = position_dodge(), stat = "identity")+
+  geom_bar(data = dta_d2[!variable %in% c("Srazky", "Teplota")] %>% mutate(var_pov = paste0(variable, ' - ', POV)), aes(x = PER, y= V1, group = month, fill = fill), colour = "black",position = position_dodge(), stat = "identity")+
   #geom_text(data = BP_DIST_d2[!variable %in% c("PREC", "TEMP")], aes(x = PER, y= 0, group = SEZONA, label=SEZONA), vjust=1, position = position_dodge(width = 0.9))+
   #geom_point(data = eddy_m, aes(as.factor(month), y = value, group = month), color = "#377eb8", shape = 4, size =3)+
   #geom_point(data = eddy_m, aes(as.factor(month), y = value, group = month), color = "#377eb8", shape = 16)+
@@ -168,3 +174,41 @@ ggplot(dta_d_m[variable.1 != "DIFF" & !variable %in% c("Srazky", "Teplota")])+
 ggplot(dta_d_cum[!variable %in% c("Srazky", "Teplota")])+
   geom_line(aes(x = DTM, y = V1, colour = POV))+
   facet_wrap(~variable, scales = "free_y", ncol = 1)
+
+
+dta_d[, sort:= sort(`Forest [mm]`, index.return = T)$ix, by = .(month, variable, POV)]
+
+max(dta_d$sort)
+
+
+a <- ggplot(dta_d[variable %in% c("Celkovy odtok") & POV == "Brejlsky potok"] )+
+  geom_point(aes(x = `Arable land [mm]`, y = `Forest [mm]`, group= month))+
+  geom_smooth(aes(x = `Arable land [mm]`, y = `Forest [mm]`), method = "lm")+
+  geom_line(aes(x = seq(from = 0, to =max(`Forest [mm]`), length.out = 720), y = seq(from = 0, to =max(`Forest [mm]`), length.out = 720)))+
+  facet_wrap(~month, nrow = 1)+
+  #coord_fixed()+
+  theme_bw()+
+  theme(axis.title.y = element_blank(), legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), strip.text = element_blank())+
+  labs(title = "Celkovy odtok", fill = "", x = "")
+
+gg_list <- list()
+
+names <- dta_d[!variable %in% c("Srazky", "Teplota", "Celkovy odtok"), sort(unique(variable))]
+
+for (i in 1:length(names)){
+  
+  b <- ggplot(dta_d[variable %in% names[i] & POV == "Brejlsky potok"] )+
+    geom_point(aes(x = `Arable land [mm]`, y = `Forest [mm]`, group= month))+
+    geom_smooth(aes(x = `Arable land [mm]`, y = `Forest [mm]`), method = "lm")+
+    geom_line(aes(x = seq(from = 0, to =max(`Forest [mm]`), length.out = 720), y = seq(from = 0, to =max(`Forest [mm]`), length.out = 720)))+
+    facet_wrap(~month, nrow = 1)+
+    #coord_fixed()+
+    theme_bw()+
+    theme(axis.title.y = element_blank(), legend.position = "none", axis.text = element_blank(), axis.ticks = element_blank(), strip.text = element_blank())+
+    labs(title = names[i], fill = "", x = "")
+  
+  gg_list[[i]] <- b
+  
+}
+
+ggarrange(a, gg_list[[1]], gg_list[[2]], gg_list[[3]], gg_list[[4]], gg_list[[5]], gg_list[[6]], gg_list[[7]], gg_list[[8]], ncol = 1)
